@@ -214,6 +214,7 @@ Version: $VERSION
 Architecture: $ARCH
 Maintainer: $MAINTAINER
 Depends: libdtk6widget, libdtk6core, libqt6widgets6, libqt6core6, libqt6gui6, systemd
+Recommends: libxcb1, libwayland-client0
 Section: utils
 Priority: optional
 Homepage: https://github.com/yxzl/candle

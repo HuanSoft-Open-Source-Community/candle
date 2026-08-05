@@ -1,18 +1,29 @@
 #include <QCoreApplication>
 #include <QTimer>
 #include <QCommandLineParser>
+#include <QSettings>
 #include <csignal>
 
 #include <DLog>
 
 #include "numlock_simulator.h"
 #include "ipc_server.h"
+#include "window_monitor.h"
+#include "power_settings_reader.h"
+#include "smart_blocker.h"
 
 DCORE_USE_NAMESPACE
 
+// ---- 配置持久化 key ----
+static const char kSettingsGroup[]  = "SmartBlocker";
+static const char kKeySmart[]       = "smartEnabled";
+static const char kKeyAuto[]        = "autoInterval";
+static const char kKeyTarget[]      = "targetProcesses";
+static const char kKeyManualMin[]   = "manualIntervalMinutes";
+
 static QCoreApplication *g_app = nullptr;
 
-void signalHandler(int sig)
+static void signalHandler(int sig)
 {
     if (g_app) {
         dInfo() << "Received signal" << sig << ", shutting down gracefully...";
@@ -26,79 +37,149 @@ int main(int argc, char *argv[])
     g_app = &app;
 
     app.setApplicationName("numlockd");
-    app.setApplicationVersion("1.0.0");
+    app.setOrganizationName("org.yxzl.candle");
+    app.setApplicationVersion("1.1.0");
 
     DLogManager::registerConsoleAppender();
     DLogManager::registerFileAppender();
 
+    // ---- 命令行参数 ----
     QCommandLineParser parser;
-    parser.setApplicationDescription("Numlock daemon - periodically simulates NumLock key presses");
+    parser.setApplicationDescription(
+        "Numlock daemon — intelligent screen-block prevention");
     parser.addHelpOption();
     parser.addVersionOption();
 
-    QCommandLineOption intervalOption(QStringList() << "i" << "interval",
-                                      "Simulation interval in minutes (default: 15)",
-                                      "minutes",
-                                      "15");
+    QCommandLineOption intervalOption(
+        QStringList() << "i" << "interval",
+        "Manual simulation interval in minutes (default: 15, ignored in auto mode)",
+        "minutes", "15");
     parser.addOption(intervalOption);
-
     parser.process(app);
 
-    int interval = parser.value(intervalOption).toInt();
-    if (interval < 2) {
-        dWarning() << "Interval too small, setting to minimum 2 minutes";
-        interval = 2;
-    }
-    dInfo() << "Starting numlockd with interval:" << interval << "minutes";
+    int manualIntervalMin = parser.value(intervalOption).toInt();
+    if (manualIntervalMin < 2) manualIntervalMin = 2;
 
-    // 先启动 IPC 服务器，这样客户端可以连接
-    IpcServer ipcServer;
-    if (!ipcServer.start()) {
-        dWarning() << "Failed to start IPC server, continuing without IPC functionality";
-    } else {
-        dInfo() << "IPC server started successfully";
-    }
+    // ---- 持久化配置 ----
+    QSettings settings("org.yxzl.candle", "numlockd");
+    settings.beginGroup(kSettingsGroup);
 
+    // ---- 初始化模块 ----
     NumlockSimulator simulator;
     if (!simulator.init()) {
-        dError() << "Failed to initialize NumlockSimulator, continuing without simulation functionality";
-        // 不返回错误，让 IPC 服务器继续运行以便客户端可以连接
-    } else {
-        dInfo() << "NumlockSimulator initialized successfully";
+        dError() << "Failed to initialize NumlockSimulator";
     }
 
+    IpcServer ipcServer;
+    if (!ipcServer.start()) {
+        dWarning() << "Failed to start IPC server, continuing without IPC";
+    }
+
+    auto *monitor = createWindowMonitor(&app);
+    if (monitor && !monitor->init()) {
+        dWarning() << "WindowMonitor init failed — smart blocking unavailable";
+    }
+
+    PowerSettingsReader powerReader;
+    powerReader.init();
+
+    SmartBlocker blocker;
+
+    // ---- 从 QSettings 恢复配置 ----
+    blocker.setSmartEnabled(
+        settings.value(kKeySmart, false).toBool());
+    blocker.setAutoInterval(
+        settings.value(kKeyAuto, false).toBool());
+    blocker.setManualIntervalMinutes(
+        settings.value(kKeyManualMin, manualIntervalMin).toInt());
+    QString savedTargets = settings.value(kKeyTarget).toString();
+    if (!savedTargets.isEmpty()) {
+        blocker.setTargetProcesses(savedTargets.split(QLatin1Char(','),
+                                          Qt::SkipEmptyParts));
+    }
+    settings.endGroup();
+
+    // ---- 信号连接：IPC → 配置 ----
+    QObject::connect(&ipcServer, &IpcServer::configReceived,
+                     &blocker, &SmartBlocker::setManualIntervalMinutes);
+    QObject::connect(&ipcServer, &IpcServer::smartReceived,
+                     &blocker, &SmartBlocker::setSmartEnabled);
+    QObject::connect(&ipcServer, &IpcServer::targetReceived,
+                     &blocker, &SmartBlocker::setTargetProcesses);
+    QObject::connect(&ipcServer, &IpcServer::autoIntervalReceived,
+                     &blocker, &SmartBlocker::setAutoInterval);
+
+    // ---- 信号连接：WindowMonitor → SmartBlocker ----
+    if (monitor) {
+        QObject::connect(monitor, &WindowMonitor::activeWindowChanged,
+                         &blocker, &SmartBlocker::updateActiveWindow);
+        // 初始同步
+        blocker.updateActiveWindow(monitor->currentInfo());
+    }
+
+    // ---- 信号连接：PowerSettings → SmartBlocker ----
+    QObject::connect(&powerReader, &PowerSettingsReader::screenBlackDelayChanged,
+                     &blocker, &SmartBlocker::setScreenBlackDelay);
+    if (powerReader.isAvailable()) {
+        blocker.setScreenBlackDelay(powerReader.screenBlackDelay());
+    }
+
+    // ---- 状态推送到 GUI ----
+    QObject::connect(&blocker, &SmartBlocker::blockingStateChanged,
+                     [&](const QString &status) {
+        ActiveWindowInfo info = blocker.activeWindow();
+        ipcServer.sendStatus(status, info.pid, info.processName,
+                             info.minimized, blocker.effectiveIntervalMs());
+    });
+
+    // ---- 定时器：智能阻止 ----
     QTimer timer;
-    int actualInterval = (interval - 1) * 60 * 1000;
-    if (actualInterval < 60 * 1000) {
-        actualInterval = 60 * 1000;
-    }
-    timer.setInterval(actualInterval);
-    dInfo() << "Timer interval set to" << (actualInterval / 60000) << "minutes";
+    timer.setInterval(blocker.effectiveIntervalMs());
+    dInfo() << "Initial interval:" << timer.interval() << "ms";
 
-    QObject::connect(&ipcServer, &IpcServer::configReceived, [&timer, &simulator](int newInterval) {
-        dInfo() << "Received new interval from IPC:" << newInterval << "minutes";
-        if (newInterval < 2) {
-            dWarning() << "Received interval too small, setting to minimum 2 minutes";
-            newInterval = 2;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        if (blocker.shouldBlock()) {
+            dInfo() << "Timer tick — blocking (active window:"
+                    << blocker.activeWindow().processName << ")";
+            simulator.simulateNumLock();
+        } else {
+            dInfo() << "Timer tick — skipped (no matching active window)";
         }
-        int newActualInterval = (newInterval - 1) * 60 * 1000;
-        if (newActualInterval < 60 * 1000) {
-            newActualInterval = 60 * 1000;
+        // 动态更新间隔（自动模式可能因熄屏延时变化而调整）
+        int ms = blocker.effectiveIntervalMs();
+        if (ms != timer.interval()) {
+            timer.setInterval(ms);
+            dInfo() << "Interval updated to" << ms << "ms";
         }
-        timer.setInterval(newActualInterval);
-        dInfo() << "Timer interval updated to" << (newActualInterval / 60000) << "minutes";
     });
 
-    QObject::connect(&timer, &QTimer::timeout, [&simulator]() {
-        dInfo() << "Timer triggered, simulating NumLock press";
-        simulator.simulateNumLock();
+    // ---- 保存配置（退出时持久化） ----
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, [&]() {
+        QSettings s("org.yxzl.candle", "numlockd");
+        s.beginGroup(kSettingsGroup);
+        s.setValue(kKeySmart, blocker.isSmartEnabled());
+        s.setValue(kKeyAuto, blocker.isAutoInterval());
+        s.setValue(kKeyManualMin, blocker.manualIntervalMinutes());
+        s.setValue(kKeyTarget, blocker.targetProcesses().join(QLatin1Char(',')));
+        s.endGroup();
+        s.sync();
     });
 
+    // ---- 信号处理 ----
     std::signal(SIGTERM, signalHandler);
     std::signal(SIGINT, signalHandler);
 
     timer.start();
-    dInfo() << "Numlock daemon started successfully";
+    // 推送初始状态
+    ActiveWindowInfo initInfo = blocker.activeWindow();
+    ipcServer.sendStatus(blocker.blockingStatus(), initInfo.pid,
+                         initInfo.processName, initInfo.minimized,
+                         blocker.effectiveIntervalMs());
+
+    dInfo() << "numlockd started successfully"
+            << "smart:" << blocker.isSmartEnabled()
+            << "auto:" << blocker.isAutoInterval()
+            << "targets:" << blocker.targetProcesses();
 
     return app.exec();
 }

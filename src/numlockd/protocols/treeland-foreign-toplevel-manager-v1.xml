@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="treeland_foreign_toplevel_manager_v1">
+    <copyright><![CDATA[
+    SPDX-FileCopyrightText: 2024 UnionTech Software Technology Co., Ltd.
+    SPDX-License-Identifier: MIT
+    ]]></copyright>
+    <interface name="treeland_foreign_toplevel_manager_v1" version="2">
+        <description summary="foreign toplevel manager">
+            This interface allows a client to get toplevel some info.
+            Warning! The protocol described in this file is currently in the testing
+            phase. Backward compatible changes may be added together with the
+            corresponding interface version bump. Backward incompatible changes can
+            only be done by creating a new major version of the extension.
+        </description>
+        <event name="toplevel">
+            <description summary="a toplevel has been created">
+                This event is emitted whenever a new toplevel window is created. It
+                is emitted for all toplevels, regardless of the app that has created
+                them.
+                All initial details of the toplevel(title, app_id, states, etc.) will
+                be sent immediately after this event via the corresponding events in
+                treeland_foreign_toplevel_handle_v1.
+            </description>
+            <arg name="toplevel" type="new_id" interface="treeland_foreign_toplevel_handle_v1" />
+        </event>
+        <request name="stop">
+            <description summary="Stop sending events">
+                Indicates the client no longer wishes to receive events for new toplevels.
+            </description>
+        </request>
+        <event name="finished" type="destructor">
+            <description summary="the compositor has finished with the toplevel manager">
+                This event indicates that the compositor is done sending events to the
+                treeland_foreign_toplevel_manager_v1.
+            </description>
+        </event>
+        <request name="get_dock_preview_context">
+            <arg name="relative_surface" type="object" interface="wl_surface" />
+            <arg name="id" type="new_id" interface="treeland_dock_preview_context_v1" />
+        </request>
+    </interface>
+    <interface name="treeland_foreign_toplevel_handle_v1" version="2">
+        <description summary="An opened toplevel">
+            A treeland_foreign_toplevel_handle_v1 object represents an opened toplevel window.
+        </description>
+        <event name="pid">
+            <description summary="Process id of application owning the window has changed" />
+            <arg name="pid" type="uint" />
+        </event>
+        <event name="title"><arg name="title" type="string" /></event>
+        <event name="app_id"><arg name="app_id" type="string" /></event>
+        <event name="identifier"><arg name="identifier" type="uint" /></event>
+        <event name="output_enter"><arg name="output" type="object" interface="wl_output" /></event>
+        <event name="output_leave"><arg name="output" type="object" interface="wl_output" /></event>
+        <request name="set_maximized" />
+        <request name="unset_maximized" />
+        <request name="set_minimized" />
+        <request name="unset_minimized" />
+        <request name="activate"><arg name="seat" type="object" interface="wl_seat" /></request>
+        <enum name="state">
+            <entry name="maximized" value="0" />
+            <entry name="minimized" value="1" />
+            <entry name="activated" value="2" />
+            <entry name="fullscreen" value="3" />
+            <entry name="attention" value="4" since="2" />
+        </enum>
+        <event name="state"><arg name="state" type="array" /></event>
+        <event name="done" />
+        <request name="close" />
+        <request name="set_rectangle">
+            <arg name="surface" type="object" interface="wl_surface" />
+            <arg name="x" type="int" /><arg name="y" type="int" />
+            <arg name="width" type="int" /><arg name="height" type="int" />
+        </request>
+        <enum name="error"><entry name="invalid_rectangle" value="0" /></enum>
+        <event name="closed" />
+        <request name="destroy" type="destructor" />
+        <request name="set_fullscreen">
+            <arg name="output" type="object" interface="wl_output" allow-null="true" />
+        </request>
+        <request name="unset_fullscreen" />
+        <event name="parent">
+            <arg name="parent" type="object" interface="treeland_foreign_toplevel_handle_v1" allow-null="true" />
+        </event>
+    </interface>
+</protocol>

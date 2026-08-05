@@ -83,9 +83,29 @@ void IpcServer::sendLog(const QString& message)
 
     QString logMessage = QStringLiteral("LOG:%1").arg(message);
     QByteArray data = logMessage.toUtf8();
-
-    // 向所有连接的客户端发送日志消息
     for (QLocalSocket* client : m_clients) {
+        if (client && client->state() == QLocalSocket::ConnectedState) {
+            client->write(data);
+            client->flush();
+        }
+    }
+}
+
+void IpcServer::sendStatus(const QString &status, int pid,
+                            const QString &procName, bool minimized, int intervalMs)
+{
+    if (m_clients.isEmpty()) {
+        return;
+    }
+
+    QString msg = QStringLiteral("STATUS:%1,%2,%3,%4,%5")
+                      .arg(status)
+                      .arg(pid)
+                      .arg(procName)
+                      .arg(minimized ? 1 : 0)
+                      .arg(intervalMs);
+    QByteArray data = msg.toUtf8();
+    for (QLocalSocket *client : m_clients) {
         if (client && client->state() == QLocalSocket::ConnectedState) {
             client->write(data);
             client->flush();
@@ -127,9 +147,9 @@ void IpcServer::onReadyRead()
 
     qDebug() << "Received message from client:" << message;
 
-    // 解析 CONFIG:N 格式的消息
+    // 解析消息前缀
     if (message.startsWith(QStringLiteral("CONFIG:"))) {
-        QString valueStr = message.mid(7); // 去掉 "CONFIG:" 前缀
+        QString valueStr = message.mid(7);
         bool ok;
         int intervalMinutes = valueStr.toInt(&ok);
         if (ok && intervalMinutes > 0) {
@@ -138,6 +158,21 @@ void IpcServer::onReadyRead()
         } else {
             qWarning() << "Invalid config value:" << valueStr;
         }
+    } else if (message.startsWith(QStringLiteral("SMART:"))) {
+        bool enabled = (message.mid(6) == QStringLiteral("1"));
+        qDebug() << "Smart mode:" << (enabled ? "on" : "off");
+        emit smartReceived(enabled);
+    } else if (message.startsWith(QStringLiteral("TARGET:"))) {
+        QString list = message.mid(7);
+        QStringList procs = list.split(QLatin1Char(','), Qt::SkipEmptyParts);
+        // trim each entry
+        for (QString &p : procs) p = p.trimmed();
+        qDebug() << "Target processes:" << procs;
+        emit targetReceived(procs);
+    } else if (message.startsWith(QStringLiteral("AUTO:"))) {
+        bool enabled = (message.mid(5) == QStringLiteral("1"));
+        qDebug() << "Auto interval:" << (enabled ? "on" : "off");
+        emit autoIntervalReceived(enabled);
     }
 }
 
