@@ -276,6 +276,10 @@ void TreelandWindowMonitor::cleanup()
         wl_proxy_destroy(m_manager);
         m_manager = nullptr;
     }
+    if (m_output) {
+        wl_proxy_destroy(m_output);
+        m_output = nullptr;
+    }
     if (m_registry) {
         wl_registry_destroy(m_registry);
         m_registry = nullptr;
@@ -303,9 +307,11 @@ void TreelandWindowMonitor::onRegistryGlobal(void *data, struct wl_registry *reg
         struct wl_proxy *out = static_cast<struct wl_proxy *>(
             wl_registry_bind(registry, name, &wl_output_interface,
                              (version < 4) ? version : 4));
+        if (!out) return;
         // implementation 传非空占位指针（noopDispatcher 忽略全部参数）
         static char dummyImpl;
         wl_proxy_add_dispatcher(out, &noopDispatcher, &dummyImpl, nullptr);
+        self->m_output = out;
         return;
     }
 

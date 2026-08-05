@@ -65,6 +65,7 @@ private:
     struct wl_display   *m_display   = nullptr;
     struct wl_registry  *m_registry  = nullptr;
     struct wl_proxy     *m_manager   = nullptr;
+    struct wl_proxy     *m_output    = nullptr;   // wl_output 空绑定（防泄漏）
     QSocketNotifier     *m_notifier  = nullptr;
     QTimer              *m_pollTimer = nullptr;
 
