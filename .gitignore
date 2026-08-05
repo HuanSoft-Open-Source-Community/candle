@@ -1,6 +1,8 @@
-# IDE files
+# IDE/AI 工具文件
 .unioncode/
 .trae/
+.reasonix/
+.tmp/
 
 # Build directories
 build/
