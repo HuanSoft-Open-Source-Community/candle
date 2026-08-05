@@ -261,8 +261,12 @@ void TreelandWindowMonitor::cleanup()
     delete m_notifier;
     m_notifier = nullptr;
 
-    // 清理 handle 上下文
+    // 清理 handle 上下文（先销毁 proxy 再释放上下文）
     for (auto *ctx : m_toplevels) {
+        if (ctx->proxy) {
+            wl_proxy_destroy(ctx->proxy);
+            ctx->proxy = nullptr;
+        }
         delete ctx;
     }
     m_toplevels.clear();
@@ -291,13 +295,28 @@ void TreelandWindowMonitor::onRegistryGlobal(void *data, struct wl_registry *reg
                                               uint32_t version)
 {
     auto *self = static_cast<TreelandWindowMonitor *>(data);
+
+    // 事件中的 'o' 参数对象必须已 bind 且有非空 implementation，
+    // 否则 wl_closure_lookup_objects 在 dispatch 前返回 EINVAL。
+    // 这里对 wl_output 做空绑定，只为让对象存在于 display map 中。
+    if (std::strcmp(interface, "wl_output") == 0) {
+        struct wl_proxy *out = static_cast<struct wl_proxy *>(
+            wl_registry_bind(registry, name, &wl_output_interface,
+                             (version < 4) ? version : 4));
+        // implementation 传非空占位指针（noopDispatcher 忽略全部参数）
+        static char dummyImpl;
+        wl_proxy_add_dispatcher(out, &noopDispatcher, &dummyImpl, nullptr);
+        return;
+    }
+
     if (std::strcmp(interface, "treeland_foreign_toplevel_manager_v1") == 0) {
         uint32_t v = (version < 2) ? version : 2;
         struct wl_proxy *mgr = static_cast<struct wl_proxy *>(
             wl_registry_bind(registry, name,
                              &treeland_foreign_toplevel_manager_v1_interface, v));
+        // implementation 传 self（非空），data 传 self（经 user_data 获取）
         wl_proxy_add_dispatcher(mgr, &TreelandWindowMonitor::managerDispatcher,
-                                nullptr, self);
+                                self, self);
         self->m_manager = mgr;
         qDebug() << "TreelandMonitor: bound manager v" << v;
     }
@@ -309,12 +328,23 @@ void TreelandWindowMonitor::onRegistryGlobalRemove(void *, struct wl_registry *,
     // Treeland 管理器全局被移除 —— 罕见情况，忽略
 }
 
+// wl_output 空绑定占位分发器：不处理任何事件
+int TreelandWindowMonitor::noopDispatcher(const void *, void *, uint32_t,
+                                           const struct wl_message *,
+                                           union wl_argument *)
+{
+    return 0;
+}
+
 int TreelandWindowMonitor::managerDispatcher(const void *, void *target,
                                               uint32_t opcode,
                                               const struct wl_message *,
                                               union wl_argument *args)
 {
-    auto *self = static_cast<TreelandWindowMonitor *>(target);
+    // 契约：target 是收到事件的 wl_proxy*，用户数据经 user_data 获取
+    auto *proxy = static_cast<struct wl_proxy *>(target);
+    auto *self = static_cast<TreelandWindowMonitor *>(
+        wl_proxy_get_user_data(proxy));
     if (!self) return 0;
 
     if (opcode == 0) {  // toplevel → 新 handle
@@ -324,8 +354,9 @@ int TreelandWindowMonitor::managerDispatcher(const void *, void *target,
         auto *ctx = new HandleContext;
         ctx->monitor = self;
         ctx->proxy   = hp;
+        // implementation 传 self（非空），data 传 ctx（经 user_data 获取）
         wl_proxy_add_dispatcher(hp, &TreelandWindowMonitor::handleDispatcher,
-                                nullptr, ctx);
+                                self, ctx);
         self->m_toplevels.insert(hp, ctx);
         qDebug() << "TreelandMonitor: toplevel handle created";
     }
@@ -338,7 +369,10 @@ int TreelandWindowMonitor::handleDispatcher(const void *, void *target,
                                              const struct wl_message *,
                                              union wl_argument *args)
 {
-    auto *ctx = static_cast<HandleContext *>(target);
+    // 契约：target 是收到事件的 wl_proxy*，HandleContext 经 user_data 获取
+    auto *proxy = static_cast<struct wl_proxy *>(target);
+    auto *ctx = static_cast<HandleContext *>(
+        wl_proxy_get_user_data(proxy));
     if (!ctx || !ctx->monitor) return 0;
     auto *self = ctx->monitor;
 
@@ -371,11 +405,14 @@ int TreelandWindowMonitor::handleDispatcher(const void *, void *target,
         self->onHandleStateChanged(ctx->proxy);
         break;
     case 8: { // closed → handle 销毁
-        self->m_toplevels.remove(ctx->proxy);
-        if (self->m_activeHandle == ctx->proxy) {
+        struct wl_proxy *deadProxy = ctx->proxy;
+        self->m_toplevels.remove(deadProxy);
+        if (self->m_activeHandle == deadProxy) {
             self->m_activeHandle = nullptr;
             self->emitActiveWindowChanged();
         }
+        ctx->proxy = nullptr;
+        wl_proxy_destroy(deadProxy);
         delete ctx;
         break;
     }

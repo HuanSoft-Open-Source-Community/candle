@@ -57,6 +57,10 @@ private:
     static int handleDispatcher(const void *implementation, void *target,
                                 uint32_t opcode, const struct wl_message *msg,
                                 union wl_argument *args);
+    /** wl_output 空绑定占位分发器 */
+    static int noopDispatcher(const void *implementation, void *target,
+                              uint32_t opcode, const struct wl_message *msg,
+                              union wl_argument *args);
 
     struct wl_display   *m_display   = nullptr;
     struct wl_registry  *m_registry  = nullptr;
