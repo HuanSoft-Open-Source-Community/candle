@@ -156,6 +156,7 @@ sudo apt-get purge candle
 - `libqt6widgets6` - Qt6 控件库
 - `libqt6core6` - Qt6 核心库
 - `libqt6gui6` - Qt6 GUI 库
+- `systemd` - 提供 systemd-logind（uaccess udev 规则依赖；deepin/UOS 默认安装）
 
 ## 安装后配置
 
