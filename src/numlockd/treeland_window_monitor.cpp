@@ -304,6 +304,11 @@ void TreelandWindowMonitor::onRegistryGlobal(void *data, struct wl_registry *reg
     // 否则 wl_closure_lookup_objects 在 dispatch 前返回 EINVAL。
     // 这里对 wl_output 做空绑定，只为让对象存在于 display map 中。
     if (std::strcmp(interface, "wl_output") == 0) {
+        // 多输出场景：先释放旧的空绑定 proxy，避免覆盖泄漏
+        if (self->m_output) {
+            wl_proxy_destroy(self->m_output);
+            self->m_output = nullptr;
+        }
         struct wl_proxy *out = static_cast<struct wl_proxy *>(
             wl_registry_bind(registry, name, &wl_output_interface,
                              (version < 4) ? version : 4));
@@ -320,6 +325,7 @@ void TreelandWindowMonitor::onRegistryGlobal(void *data, struct wl_registry *reg
         struct wl_proxy *mgr = static_cast<struct wl_proxy *>(
             wl_registry_bind(registry, name,
                              &treeland_foreign_toplevel_manager_v1_interface, v));
+        if (!mgr) return;
         // implementation 传 self（非空），data 传 self（经 user_data 获取）
         wl_proxy_add_dispatcher(mgr, &TreelandWindowMonitor::managerDispatcher,
                                 self, self);
