@@ -20,7 +20,7 @@ DTK6/Qt6 桌面應用，用以控御數字鎖定守護進程服務，暫時阻�
 - Linux 操作系統
 - Qt6 (>= 6.2)
 - DTK6 (Deepin Toolkit 6)
-- udev uaccess 規則（由安裝腳本配置，無需 systemd）
+- udev uaccess 規則（由安裝腳本配置；依賴 systemd-logind，deepin/UOS 已內建）
 - `/dev/uinput` 設備訪問權限
 
 ## 🚀 編譯之法
@@ -112,8 +112,7 @@ candle/
 │   └── README.zh-Hant.md  # 繁體中文
 ├── scripts/               # 腳本
 │   └── install.sh
-├── config/                # 配置文件
-│   └── numlockd.service
+├── config/                # udev/設定檔（無 systemd 服務檔）
 ├── CMakeLists.txt         # 構建配置
 └── LICENSE.txt            # 許可證
 ```

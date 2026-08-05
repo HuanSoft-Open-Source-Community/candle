@@ -20,7 +20,7 @@ A DTK6/Qt6 desktop application for temporarily preventing automatic screen dimmi
 - Linux operating system
 - Qt6 (>= 6.2)
 - DTK6 (Deepin Toolkit 6)
-- udev uaccess rule (configured by install script, no systemd needed)
+- udev uaccess rule (configured by install script; relies on systemd-logind, which deepin/UOS already provide)
 - `/dev/uinput` device access
 
 ## 🚀 Building
@@ -113,8 +113,7 @@ candle/
 │   └── README.zh-Hant.md  # Traditional Chinese
 ├── scripts/               # Scripts
 │   └── install.sh
-├── config/                # Configuration files
-│   └── numlockd.service
+├── config/                # udev/config files (no systemd service file)
 ├── CMakeLists.txt         # Build configuration
 └── LICENSE.txt            # License
 ```

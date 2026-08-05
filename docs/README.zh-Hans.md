@@ -20,7 +20,7 @@
 - Linux 操作系统
 - Qt6 (>= 6.2)
 - DTK6 (Deepin Toolkit 6)
-- udev uaccess 规则（安装脚本配置，无需 systemd）
+- udev uaccess 规则（安装脚本配置；依赖 systemd-logind，deepin/UOS 已内置）
 - `/dev/uinput` 设备访问权限
 
 ## 🚀 编译步骤
@@ -135,8 +135,7 @@ candle/
 │   └── README.zh-Hant.md  # 繁体中文
 ├── scripts/               # 脚本
 │   └── install.sh
-├── config/                # 配置文件
-│   └── numlockd.service
+├── config/                # udev/配置文件（无 systemd 服务文件）
 ├── CMakeLists.txt         # 构建配置
 └── LICENSE.txt            # 许可证
 ```

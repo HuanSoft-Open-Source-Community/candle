@@ -156,7 +156,6 @@ sudo apt-get purge candle
 - `libqt6widgets6` - Qt6 控件库
 - `libqt6core6` - Qt6 核心库
 - `libqt6gui6` - Qt6 GUI 库
-- `systemd` - 系统服务管理
 
 ## 安装后配置
 
@@ -165,31 +164,24 @@ sudo apt-get purge candle
 安装脚本会自动创建 udev 规则以允许访问 `/dev/uinput` 设备：
 
 ```
-KERNEL=="uinput", MODE="0660", GROUP="input"
+KERNEL=="uinput", MODE="0660", GROUP="input", TAG+="uaccess"
 ```
 
-### 服务管理
+> `TAG+="uaccess"` 由 systemd-logind 为**当前活动会话用户**添加 ACL，
+> 无需将用户加入 input 组，也无需 root 运行守护进程。
 
-安装后会自动启用 `numlockd` 服务，可以使用以下命令管理：
+### 守护进程生命周期
+
+包中**不包含** systemd 服务。`numlockd` 由 `candle` 面板以当前用户身份
+自动拉起，面板退出时自动终止（最小权限原则，无后台 root 进程）。
+
+启动/停止由面板控制按钮管理：
 
 ```bash
-# 查看服务状态
-sudo systemctl status numlockd
+# 打开面板（自动拉起守护进程）
+candle
 
-# 启动服务
-sudo systemctl start numlockd
-
-# 停止服务
-sudo systemctl stop numlockd
-
-# 重启服务
-sudo systemctl restart numlockd
-
-# 禁用开机自启
-sudo systemctl disable numlockd
-
-# 启用开机自启
-sudo systemctl enable numlockd
+# 停止守护进程（面板内点击"停止服务"或直接关闭面板）
 ```
 
 ## 故障排除
