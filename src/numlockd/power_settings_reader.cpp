@@ -1,9 +1,7 @@
 #include "power_settings_reader.h"
+#include "gsettings_bridge.h"
 
 #include <DConfig>
-#ifdef HAVE_GIO
-#include <gio/gio.h>
-#endif
 
 #include <QDBusConnection>
 #include <QDBusInterface>
@@ -41,7 +39,7 @@ PowerSettingsReader::~PowerSettingsReader()
 {
 #ifdef HAVE_GIO
     if (m_gsettings) {
-        g_object_unref(m_gsettings);
+        gsettings_bridge_free(m_gsettings);
         m_gsettings = nullptr;
     }
 #endif
@@ -80,7 +78,7 @@ bool PowerSettingsReader::init()
 
 bool PowerSettingsReader::tryDConfig()
 {
-    m_dconfig = DConfig::create(kDConfigAppId, QString(), this);
+    m_dconfig = DConfig::create(kDConfigAppId, QString(), QString(), this);
     if (!m_dconfig || !m_dconfig->isValid()) {
         qDebug() << "PowerSettingsReader: DConfig not available for" << kDConfigAppId;
         delete m_dconfig;
@@ -121,7 +119,7 @@ void PowerSettingsReader::onDConfigValueChanged(const QString &key)
 
 #ifdef HAVE_GIO
 // GSettings changed 回调（C 函数，无捕获）
-static void onGSettingsChangedCb(GSettings *, const char *key, gpointer userData)
+static void onGSettingsChangedCb(void *userData, const char *key)
 {
     auto *self = static_cast<PowerSettingsReader *>(userData);
     self->onGSettingsChanged(QString::fromLatin1(key));
@@ -132,25 +130,24 @@ static void onGSettingsChangedCb(GSettings *, const char *key, gpointer userData
 
 bool PowerSettingsReader::tryGSettings()
 {
-    GSettings *s = g_settings_new(kGSettingsSchema);
-    if (!s) {
+    m_gsettings = gsettings_bridge_new(kGSettingsSchema);
+    if (!m_gsettings) {
         qDebug() << "PowerSettingsReader: GSettings schema not found:" << kGSettingsSchema;
         return false;
     }
 
-    // 检查 key 存在（g_settings_get_int 对不存在的 key 返回 0，无法区分）
+    // 检查 key 是否存在（g_settings_get_int 对不存在的 key 返回 0，无法区分）
     // 尝试读取一次看是否返回合理值
-    int acDelay = g_settings_get_int(s, kGSettingsKeyAc);
-    int batDelay = g_settings_get_int(s, kGSettingsKeyBat);
+    int acDelay = gsettings_bridge_get_int(m_gsettings, kGSettingsKeyAc);
+    int batDelay = gsettings_bridge_get_int(m_gsettings, kGSettingsKeyBat);
     if (acDelay <= 0 && batDelay <= 0) {
         qDebug() << "PowerSettingsReader: GSettings power keys return zero or missing";
-        g_object_unref(s);
+        gsettings_bridge_free(m_gsettings);
+        m_gsettings = nullptr;
         return false;
     }
 
-    m_gsettings = s;
-    g_signal_connect(s, "changed", G_CALLBACK(onGSettingsChangedCb), this);
-
+    gsettings_bridge_set_changed_callback(m_gsettings, onGSettingsChangedCb, this);
     return true;
 }
 
@@ -158,7 +155,7 @@ int PowerSettingsReader::readDelayFromGSettings() const
 {
     if (!m_gsettings) return -1;
     const char *key = isOnBattery() ? kGSettingsKeyBat : kGSettingsKeyAc;
-    return g_settings_get_int(m_gsettings, key);
+    return gsettings_bridge_get_int(m_gsettings, key);
 }
 
 void PowerSettingsReader::onGSettingsChanged(const QString &key)

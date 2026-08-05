@@ -152,11 +152,11 @@ void MainWindow::initUI()
     m_smartTopLayout = new QHBoxLayout();
     m_smartTopLayout->setSpacing(10);
 
-    m_smartSwitch = new DSwitch(this);
+    m_smartSwitch = new DSwitchButton(this);
     m_smartSwitchLabel = new DLabel(tr("智能阻止"), this);
     m_smartSwitchLabel->setBuddy(m_smartSwitch);
 
-    m_autoIntervalSwitch = new DSwitch(this);
+    m_autoIntervalSwitch = new DSwitchButton(this);
     m_autoIntervalLabel = new DLabel(tr("自动同步熄屏时间"), this);
     m_autoIntervalLabel->setBuddy(m_autoIntervalSwitch);
 
@@ -263,8 +263,8 @@ void MainWindow::setupConnections()
     connect(m_applyBtn, &DPushButton::clicked, this, &MainWindow::onApplyConfig);
 
     // 智能模式
-    connect(m_smartSwitch, &DSwitch::toggled, this, &MainWindow::onSmartToggled);
-    connect(m_autoIntervalSwitch, &DSwitch::toggled, this, &MainWindow::onAutoIntervalToggled);
+    connect(m_smartSwitch, &DSwitchButton::toggled, this, &MainWindow::onSmartToggled);
+    connect(m_autoIntervalSwitch, &DSwitchButton::toggled, this, &MainWindow::onAutoIntervalToggled);
     connect(m_targetEdit, &DLineEdit::editingFinished, this, &MainWindow::onTargetProcessesEdited);
 }
 
@@ -492,7 +492,7 @@ bool MainWindow::autoStartDaemon()
         updateServerStatus();
     });
 
-    connect(m_daemonProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+    connect(m_daemonProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError /*error*/) {
         appendLog(tr("守护进程错误: %1").arg(m_daemonProcess->errorString()));
     });
 
@@ -570,7 +570,6 @@ void MainWindow::onSocketReadyRead()
         if (parts.size() >= 5) {
             QString status = parts[0];
             QString procName = parts[2];
-            bool minimized = (parts[3] == QStringLiteral("1"));
             int intervalMs = parts[4].toInt();
             m_lastIntervalMs = intervalMs;
 

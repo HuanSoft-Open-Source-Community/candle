@@ -3,12 +3,14 @@
 
 #include <QObject>
 
-class DConfig;
+// DConfig 定义在 Dtk::Core 命名空间，直接包含完整定义
+// （避免前置声明与定义命名空间不一致导致的 incomplete type）
+#include <DConfig>
+#include <dtkcore_global.h>
+DCORE_USE_NAMESPACE
 
-// GSettings（libgio，UOS 20 兜底），编译时可能不可用
-#ifdef HAVE_GIO
-typedef struct _GSettings GSettings;
-#endif
+// GSettings 句柄（经 gsettings_bridge 隔离，避免 glib/Qt 宏冲突），
+// m_gsettings 为 void* 桥接句柄
 
 /**
  * @brief 跨平台电源设置读取器
@@ -67,7 +69,7 @@ private:
 
     DConfig *m_dconfig = nullptr;
 #ifdef HAVE_GIO
-    GSettings *m_gsettings = nullptr;
+    void *m_gsettings = nullptr;   // gsettings_bridge 句柄
 #endif
     int m_delaySeconds = -1;
     bool        m_available = false;

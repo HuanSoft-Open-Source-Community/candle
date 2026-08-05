@@ -79,6 +79,14 @@ target_sources(numlockd PRIVATE
     smart_blocker.cpp
 )
 
+# ---- GSettings 桥接层（仅 GIO 可用时编译；不包含 Qt 头，隔离 glib/Qt 宏冲突） ----
+if(GIO_FOUND)
+    target_sources(numlockd PRIVATE
+        gsettings_bridge.h
+        gsettings_bridge.cpp
+    )
+endif()
+
 target_link_libraries(numlockd PRIVATE
     Qt6::Core
     Qt6::Network
@@ -87,19 +95,19 @@ target_link_libraries(numlockd PRIVATE
 )
 
 # ---- 条件链接 xcb ----
-if(HAVE_XCB)
+if(XCB_FOUND)
     target_include_directories(numlockd PRIVATE ${XCB_INCLUDE_DIRS})
     target_link_libraries(numlockd PRIVATE ${XCB_LIBRARIES})
 endif()
 
 # ---- 条件链接 gio ----
-if(HAVE_GIO)
+if(GIO_FOUND)
     target_include_directories(numlockd PRIVATE ${GIO_INCLUDE_DIRS})
     target_link_libraries(numlockd PRIVATE ${GIO_LIBRARIES})
 endif()
 
 # ---- 条件链接 wayland-client ----
-if(HAVE_WAYLAND)
+if(WAYLAND_CLIENT_FOUND)
     target_include_directories(numlockd PRIVATE ${WAYLAND_CLIENT_INCLUDE_DIRS})
     target_link_libraries(numlockd PRIVATE ${WAYLAND_CLIENT_LIBRARIES})
 endif()

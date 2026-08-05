@@ -16,43 +16,72 @@
 
 // ============================================================================
 // Wayland 协议手动绑定（无 wayland-scanner 代码生成依赖）
+//
+// struct wl_interface 标准定义（wayland-util.h）：
+//   { name, version, method_count, methods, event_count, events }
+// 定义顺序避免 C++ 循环引用：events → types → interface。
 // ============================================================================
 
-// ---- treeland_foreign_toplevel_manager_v1 事件 ----
-//   0: toplevel(new_id)    1: finished(destructor)
-static const struct wl_message manager_events[] = {
-    { "toplevel", "n", nullptr },
-    { "finished", "", nullptr },
-};
-static const struct wl_interface treeland_foreign_toplevel_manager_v1_iface = {
-    "treeland_foreign_toplevel_manager_v1", 2,
-    2, manager_events,
-    0, nullptr, nullptr,
+// ---- treeland_foreign_toplevel_handle_v1 ----
+// types 数组（输出对象接口；wl_output_interface 来自 wayland-client-protocol.h）
+static const struct wl_interface *handle_types[] = {
+    &wl_output_interface,   // output_enter / output_leave
+    &wl_seat_interface,     // activate 请求
 };
 
-// ---- treeland_foreign_toplevel_handle_v1 事件 ----
-//   0: pid(u)  1: title(s)  2: app_id(s)  3: identifier(u)
-//   4: output_enter(o)  5: output_leave(o)  6: state(a)
-//   7: done()  8: closed()  9: parent(?o)
 static const struct wl_message handle_events[] = {
     { "pid",          "u",  nullptr },
     { "title",        "s",  nullptr },
     { "app_id",       "s",  nullptr },
     { "identifier",   "u",  nullptr },
-    { "output_enter", "o",  nullptr },
-    { "output_leave", "o",  nullptr },
+    { "output_enter", "o",  handle_types + 0 },
+    { "output_leave", "o",  handle_types + 0 },
     { "state",        "a",  nullptr },
     { "done",         "",   nullptr },
     { "closed",       "",   nullptr },
     { "parent",       "?o", nullptr },
 };
-static const struct wl_interface treeland_foreign_toplevel_handle_v1_iface = {
-    "treeland_foreign_toplevel_handle_v1", 2,
-    10, handle_events,
-    0, nullptr, nullptr,
+
+static const struct wl_message handle_requests[] = {
+    { "set_maximized",    "",   nullptr },
+    { "unset_maximized",  "",   nullptr },
+    { "set_minimized",    "",   nullptr },
+    { "unset_minimized",  "",   nullptr },
+    { "activate",         "o",  handle_types + 1 },
+    { "close",            "",   nullptr },
+    { "set_rectangle",    "oiiii", nullptr },
+    { "destroy",          "",   nullptr },   // destructor
+    { "set_fullscreen",   "?o", nullptr },
+    { "unset_fullscreen", "",   nullptr },
 };
 
-// 状态枚举值
+static const struct wl_interface treeland_foreign_toplevel_handle_v1_interface = {
+    "treeland_foreign_toplevel_handle_v1", 2,
+    10, handle_requests,
+    10, handle_events,
+};
+
+// ---- treeland_foreign_toplevel_manager_v1 ----
+static const struct wl_interface *manager_types[] = {
+    &treeland_foreign_toplevel_handle_v1_interface,   // toplevel 事件 new_id
+};
+
+static const struct wl_message manager_requests[] = {
+    { "stop", "", nullptr },
+};
+
+static const struct wl_message manager_events[] = {
+    { "toplevel", "n", manager_types + 0 },
+    { "finished", "",  nullptr },
+};
+
+static const struct wl_interface treeland_foreign_toplevel_manager_v1_interface = {
+    "treeland_foreign_toplevel_manager_v1", 2,
+    1, manager_requests,
+    2, manager_events,
+};
+
+// 状态枚举值（与 treeland_foreign_toplevel_handle_v1::state 对齐）
 enum : uint32_t {
     STATE_MAXIMIZED  = 0,
     STATE_MINIMIZED  = 1,
@@ -72,104 +101,6 @@ struct HandleContext {
     bool                     activated = false;
     bool                     minimized = false;
 };
-
-// ---- 前向声明 ----
-static int managerDispatcherImpl(const void *, void *, uint32_t,
-                                const struct wl_message *, union wl_argument *);
-static int handleDispatcherImpl(const void *, void *, uint32_t,
-                                const struct wl_message *, union wl_argument *);
-
-// ---- 注册表监听 ----
-static void onRegistryGlobal(void *data, struct wl_registry *registry,
-                              uint32_t name, const char *interface, uint32_t version)
-{
-    auto *self = static_cast<TreelandWindowMonitor *>(data);
-    if (std::strcmp(interface, "treeland_foreign_toplevel_manager_v1") == 0) {
-        uint32_t v = (version < 2) ? version : 2;
-        struct wl_proxy *mgr = wl_registry_bind(
-            registry, name, &treeland_foreign_toplevel_manager_v1_iface, v);
-        wl_proxy_add_dispatcher(mgr, managerDispatcherImpl, nullptr, self);
-        self->m_manager = mgr;
-        qDebug() << "TreelandMonitor: bound manager v" << v;
-    }
-}
-
-static void onRegistryGlobalRemove(void *, struct wl_registry *, uint32_t) {}
-
-static const struct wl_registry_listener registryListener = {
-    onRegistryGlobal, onRegistryGlobalRemove,
-};
-
-// ---- manager 事件分发 ----
-static int managerDispatcherImpl(const void *, void *target, uint32_t opcode,
-                                  const struct wl_message *, union wl_argument *args)
-{
-    auto *self = static_cast<TreelandWindowMonitor *>(target);
-    if (!self) return 0;
-
-    if (opcode == 0) {  // toplevel → 新 handle
-        struct wl_proxy *hp = reinterpret_cast<struct wl_proxy *>(args[0].o);
-        if (!hp) return 0;
-
-        auto *ctx = new HandleContext;
-        ctx->monitor = self;
-        ctx->proxy   = hp;
-        wl_proxy_add_dispatcher(hp, handleDispatcherImpl, nullptr, ctx);
-        self->m_toplevels.insert(hp, ctx);
-        qDebug() << "TreelandMonitor: toplevel handle created";
-    }
-    // opcode 1 = finished, 忽略
-    return 0;
-}
-
-// ---- handle 事件分发 ----
-static int handleDispatcherImpl(const void *, void *target, uint32_t opcode,
-                                  const struct wl_message *, union wl_argument *args)
-{
-    auto *ctx = static_cast<HandleContext *>(target);
-    if (!ctx || !ctx->monitor) return 0;
-    auto *self = ctx->monitor;
-
-    switch (opcode) {
-    case 0: // pid
-        ctx->pid = args[0].u;
-        break;
-    case 2: // app_id
-        ctx->appId = QString::fromUtf8(args[0].s);
-        break;
-    case 6: { // state → array of uint32
-        struct wl_array *arr = args[0].a;
-        if (!arr || arr->size == 0) break;
-        bool wasActivated = ctx->activated;
-        bool wasMinimized = ctx->minimized;
-        ctx->activated = false;
-        ctx->minimized = false;
-        uint32_t *states = static_cast<uint32_t *>(arr->data);
-        size_t count = arr->size / sizeof(uint32_t);
-        for (size_t i = 0; i < count; ++i) {
-            if (states[i] == STATE_ACTIVATED) ctx->activated = true;
-            if (states[i] == STATE_MINIMIZED) ctx->minimized = true;
-        }
-        // 如果激活状态发生变化，通知监视器
-        if (ctx->activated != wasActivated || ctx->minimized != wasMinimized) {
-            self->onHandleStateChanged(ctx->proxy);
-        }
-        break;
-    }
-    case 7: // done → 初始数据发送完毕，发出第一次状态通知
-        self->onHandleStateChanged(ctx->proxy);
-        break;
-    case 8: // closed → handle 销毁
-        self->m_toplevels.remove(ctx->proxy);
-        if (self->m_activeHandle == ctx->proxy) {
-            self->m_activeHandle = nullptr;
-            self->emitActiveWindowChanged();
-        }
-        delete ctx;
-        break;
-    }
-    return 0;
-}
 
 // ============================================================================
 // TreelandWindowMonitor 实现
@@ -206,9 +137,13 @@ bool TreelandWindowMonitor::init()
         cleanup();
         return false;
     }
+    static const struct wl_registry_listener registryListener = {
+        &TreelandWindowMonitor::onRegistryGlobal,
+        &TreelandWindowMonitor::onRegistryGlobalRemove,
+    };
     wl_registry_add_listener(m_registry, &registryListener, this);
 
-    // 第一轮同步：发送请求，等待回复（获取全局列表）
+    // 第一轮同步：获取全局列表
     if (wl_display_roundtrip(m_display) < 0) {
         qWarning() << "TreelandWindowMonitor: roundtrip failed";
         cleanup();
@@ -221,14 +156,14 @@ bool TreelandWindowMonitor::init()
         return false;
     }
 
-    // 第二轮同步：等待 manager 绑定完成和 toplevel 事件
+    // 第二轮同步：等待 toplevel 初始事件
     if (wl_display_roundtrip(m_display) < 0) {
         qWarning() << "TreelandWindowMonitor: second roundtrip failed";
         cleanup();
         return false;
     }
 
-    // 设置 QSocketNotifier
+    // QSocketNotifier 事件驱动
     int fd = wl_display_get_fd(m_display);
     if (fd < 0) {
         qWarning() << "TreelandWindowMonitor: failed to get display fd";
@@ -236,12 +171,14 @@ bool TreelandWindowMonitor::init()
         return false;
     }
     m_notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
-    connect(m_notifier, &QSocketNotifier::activated, this, &TreelandWindowMonitor::onWaylandEvent);
+    connect(m_notifier, &QSocketNotifier::activated,
+            this, &TreelandWindowMonitor::onWaylandEvent);
 
     // 兜底定时器
     m_pollTimer = new QTimer(this);
     m_pollTimer->setInterval(500);
-    connect(m_pollTimer, &QTimer::timeout, this, &TreelandWindowMonitor::onPollTimer);
+    connect(m_pollTimer, &QTimer::timeout,
+            this, &TreelandWindowMonitor::onPollTimer);
     m_pollTimer->start();
 
     m_available = true;
@@ -313,8 +250,7 @@ void TreelandWindowMonitor::onWaylandEvent()
 
 void TreelandWindowMonitor::onPollTimer()
 {
-    // 兜底：检查是否有关闭但未处理的 handle
-    // 主要依赖事件驱动；此定时器仅作极低概率兜底
+    // 兜底：事件驱动为主，此定时器仅作极低概率兜底
 }
 
 void TreelandWindowMonitor::cleanup()
@@ -346,7 +282,110 @@ void TreelandWindowMonitor::cleanup()
     }
 }
 
-// ---- 供 dispatcher 回调的公共方法 ----
+// ============================================================================
+// Wayland 协议回调（static 成员函数，与 C 函数指针兼容）
+// ============================================================================
+
+void TreelandWindowMonitor::onRegistryGlobal(void *data, struct wl_registry *registry,
+                                              uint32_t name, const char *interface,
+                                              uint32_t version)
+{
+    auto *self = static_cast<TreelandWindowMonitor *>(data);
+    if (std::strcmp(interface, "treeland_foreign_toplevel_manager_v1") == 0) {
+        uint32_t v = (version < 2) ? version : 2;
+        struct wl_proxy *mgr = static_cast<struct wl_proxy *>(
+            wl_registry_bind(registry, name,
+                             &treeland_foreign_toplevel_manager_v1_interface, v));
+        wl_proxy_add_dispatcher(mgr, &TreelandWindowMonitor::managerDispatcher,
+                                nullptr, self);
+        self->m_manager = mgr;
+        qDebug() << "TreelandMonitor: bound manager v" << v;
+    }
+}
+
+void TreelandWindowMonitor::onRegistryGlobalRemove(void *, struct wl_registry *,
+                                                    uint32_t)
+{
+    // Treeland 管理器全局被移除 —— 罕见情况，忽略
+}
+
+int TreelandWindowMonitor::managerDispatcher(const void *, void *target,
+                                              uint32_t opcode,
+                                              const struct wl_message *,
+                                              union wl_argument *args)
+{
+    auto *self = static_cast<TreelandWindowMonitor *>(target);
+    if (!self) return 0;
+
+    if (opcode == 0) {  // toplevel → 新 handle
+        struct wl_proxy *hp = reinterpret_cast<struct wl_proxy *>(args[0].o);
+        if (!hp) return 0;
+
+        auto *ctx = new HandleContext;
+        ctx->monitor = self;
+        ctx->proxy   = hp;
+        wl_proxy_add_dispatcher(hp, &TreelandWindowMonitor::handleDispatcher,
+                                nullptr, ctx);
+        self->m_toplevels.insert(hp, ctx);
+        qDebug() << "TreelandMonitor: toplevel handle created";
+    }
+    // opcode 1 = finished, 忽略
+    return 0;
+}
+
+int TreelandWindowMonitor::handleDispatcher(const void *, void *target,
+                                             uint32_t opcode,
+                                             const struct wl_message *,
+                                             union wl_argument *args)
+{
+    auto *ctx = static_cast<HandleContext *>(target);
+    if (!ctx || !ctx->monitor) return 0;
+    auto *self = ctx->monitor;
+
+    switch (opcode) {
+    case 0: // pid
+        ctx->pid = args[0].u;
+        break;
+    case 2: // app_id
+        ctx->appId = QString::fromUtf8(args[0].s);
+        break;
+    case 6: { // state → array of uint32
+        struct wl_array *arr = args[0].a;
+        if (!arr || arr->size == 0) break;
+        bool wasActivated = ctx->activated;
+        bool wasMinimized = ctx->minimized;
+        ctx->activated = false;
+        ctx->minimized = false;
+        uint32_t *states = static_cast<uint32_t *>(arr->data);
+        size_t count = arr->size / sizeof(uint32_t);
+        for (size_t i = 0; i < count; ++i) {
+            if (states[i] == STATE_ACTIVATED) ctx->activated = true;
+            if (states[i] == STATE_MINIMIZED) ctx->minimized = true;
+        }
+        if (ctx->activated != wasActivated || ctx->minimized != wasMinimized) {
+            self->onHandleStateChanged(ctx->proxy);
+        }
+        break;
+    }
+    case 7: // done → 初始数据发送完毕
+        self->onHandleStateChanged(ctx->proxy);
+        break;
+    case 8: { // closed → handle 销毁
+        self->m_toplevels.remove(ctx->proxy);
+        if (self->m_activeHandle == ctx->proxy) {
+            self->m_activeHandle = nullptr;
+            self->emitActiveWindowChanged();
+        }
+        delete ctx;
+        break;
+    }
+    }
+    return 0;
+}
+
+// ============================================================================
+// 供 dispatcher 回调的公共方法
+// ============================================================================
 
 void TreelandWindowMonitor::onHandleStateChanged(struct wl_proxy *proxy)
 {

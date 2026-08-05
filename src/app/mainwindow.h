@@ -8,7 +8,7 @@
 #include <DLabel>
 #include <DTextEdit>
 #include <DFrame>
-#include <DSwitch>
+#include <DSwitchButton>
 
 #include <QWidget>
 #include <QHBoxLayout>
@@ -79,9 +79,9 @@ private:
     DFrame *m_smartFrame;
     QVBoxLayout *m_smartLayout;
     QHBoxLayout *m_smartTopLayout;
-    DSwitch *m_smartSwitch;
+    DSwitchButton *m_smartSwitch;
     DLabel *m_smartSwitchLabel;
-    DSwitch *m_autoIntervalSwitch;
+    DSwitchButton *m_autoIntervalSwitch;
     DLabel *m_autoIntervalLabel;
     QHBoxLayout *m_targetLayout;
     DLabel *m_targetLabel;

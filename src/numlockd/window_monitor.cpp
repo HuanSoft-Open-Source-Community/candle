@@ -2,9 +2,12 @@
 
 #include <QProcessEnvironment>
 
-// 前置声明
-class X11WindowMonitor;
-class TreelandWindowMonitor;
+#ifdef HAVE_XCB
+#include "x11_window_monitor.h"
+#endif
+#ifdef HAVE_WAYLAND
+#include "treeland_window_monitor.h"
+#endif
 
 WindowMonitor *createWindowMonitor(QObject *parent)
 {
