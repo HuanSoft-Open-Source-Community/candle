@@ -199,11 +199,10 @@ create_deb_structure() {
     
     info "创建 Debian 包目录结构..."
     
-    # 创建目录
+    # 创建目录（不包含 lib/systemd/system：最小权限原则，无 systemd 服务）
     mkdir -p "$pkg_dir/DEBIAN"
     mkdir -p "$pkg_dir/opt/apps/org.yxzl.candle/bin"
     mkdir -p "$pkg_dir/usr/share/icons/hicolor/scalable/apps"
-    mkdir -p "$pkg_dir/lib/systemd/system"
     mkdir -p "$pkg_dir/usr/share/applications"
     mkdir -p "$pkg_dir/usr/share/doc/candle"
     
@@ -227,16 +226,14 @@ EOF
 #!/bin/bash
 set -e
 
-# 重新加载 systemd 配置
+# 清理旧版本遗留的 systemd 服务（升级场景；最小权限原则：不再以 root 服务运行）
 if command -v systemctl &> /dev/null; then
-    systemctl daemon-reload
-    
-    # 启用服务
-    systemctl enable numlockd.service || true
+    systemctl disable --now numlockd.service 2>/dev/null || true
 fi
+rm -f /etc/systemd/system/numlockd.service
 
-# 设置 uinput 权限
-echo 'KERNEL=="uinput", MODE="0660", GROUP="input"' > /etc/udev/rules.d/99-candle.rules
+# 设置 uinput 权限（最小权限：uaccess 仅授予当前活动会话用户）
+echo 'KERNEL=="uinput", MODE="0660", GROUP="input", TAG+="uaccess"' > /etc/udev/rules.d/99-candle.rules
 
 if command -v udevadm &> /dev/null; then
     udevadm control --reload-rules || true
@@ -257,12 +254,7 @@ EOF
 #!/bin/bash
 set -e
 
-# 停止并禁用服务
-if command -v systemctl &> /dev/null; then
-    systemctl stop numlockd.service || true
-    systemctl disable numlockd.service || true
-fi
-
+# numlockd 不再以 systemd 服务运行，无需停止/禁用
 exit 0
 EOF
     chmod 755 "$pkg_dir/DEBIAN/prerm"
@@ -275,6 +267,8 @@ set -e
 # 删除 udev 规则
 if [ "$1" = "purge" ]; then
     rm -f /etc/udev/rules.d/99-candle.rules
+    # 清理旧版本 install.sh 可能遗留的 systemd 服务文件
+    rm -f /etc/systemd/system/numlockd.service
     
     if command -v udevadm &> /dev/null; then
         udevadm control --reload-rules || true
@@ -310,10 +304,7 @@ EOF
         cp "$project_root/assets/images/logo.svg" "$pkg_dir/usr/share/icons/hicolor/scalable/apps/org.yxzl.candle.svg"
     fi
     
-    # 复制服务文件
-    if [[ -f "$project_root/config/numlockd.service" ]]; then
-        cp "$project_root/config/numlockd.service" "$pkg_dir/lib/systemd/system/"
-    fi
+    # 不再复制 systemd 服务文件（最小权限原则，numlockd 由 GUI 拉起）
     
     # 创建桌面文件
     cat > "$pkg_dir/usr/share/applications/org.yxzl.candle.desktop" << EOF

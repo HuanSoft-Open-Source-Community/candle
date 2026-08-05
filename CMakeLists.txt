@@ -30,7 +30,6 @@ install(FILES assets/images/logo.svg
     RENAME org.yxzl.candle.svg
 )
 
-# 安装 systemd 服务文件
-install(FILES config/numlockd.service
-    DESTINATION lib/systemd/system
-)
+# 说明：不再安装 systemd 服务文件（最小权限原则）。
+# numlockd 由 candle GUI 以当前用户身份拉起，GUI 退出即终止；
+# /dev/uinput 权限由 udev uaccess 规则（安装脚本）授予活动会话用户。

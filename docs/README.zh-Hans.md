@@ -13,14 +13,14 @@
 - **🎛️ 服务控制**：启动、停止、重启数字锁定守护进程
 - **⚙️ 参数配置**：调节数字锁定模拟间隔（分钟）
 - **📜 实时日志**：在面板中查看守护进程实时日志
-- **🔔 系统集成**：通过 systemd 服务运行
+- **🔔 生命周期管理**：numlockd 由面板以当前用户身份拉起，面板退出即终止（无 systemd 服务）
 
 ## 📋 环境要求
 
 - Linux 操作系统
 - Qt6 (>= 6.2)
 - DTK6 (Deepin Toolkit 6)
-- systemd
+- udev uaccess 规则（安装脚本配置，无需 systemd）
 - `/dev/uinput` 设备访问权限
 
 ## 🚀 编译步骤
@@ -40,11 +40,10 @@ cmake --build .
 
 ### 准备工作
 
-1. 确保拥有 `/dev/uinput` 访问权限：
+1. 确保拥有 `/dev/uinput` 访问权限（最小权限：uaccess 规则）：
    ```bash
-   # 将当前用户添加到 input 组
-   sudo usermod -aG input $USER
-   # 重新登录以使权限生效
+   # 安装 udev uaccess 规则（见下方安装脚本），
+   # 仅当前活动会话用户可访问 /dev/uinput，无需加入 input 组
    ```
 
 2. 安装编译依赖：
@@ -65,7 +64,7 @@ cmake --build .
 sudo cmake --install .
 ```
 
-### 服务安装
+### 权限配置（udev uaccess）
 
 运行安装脚本：
 
@@ -74,9 +73,12 @@ sudo ./scripts/install.sh
 ```
 
 该脚本将执行以下操作：
-1. 检查 `/dev/uinput` 权限
-2. 安装 systemd 服务文件
-3. 启用并启动 numlockd 服务
+1. 检查 `/dev/uinput` 是否存在
+2. 安装 uaccess udev 规则（`TAG+="uaccess"`，仅活动会话用户可写）
+3. 清理旧版本遗留的 systemd 服务（如有）
+
+> **说明**：numlockd 不再以 systemd 服务运行。守护进程由 candle 面板
+> 以**当前用户身份**拉起，面板退出即自动终止（最小权限原则，无 root 进程）。
 
 ## 📝 使用方法
 

@@ -57,6 +57,11 @@ private:
     void sendAutoIntervalConfig();
     void updateServerStatus();
 
+    /**
+     * @brief 终止本程序自动启动的守护进程（GUI 生命周期绑定）
+     */
+    void stopAutoStartedDaemon();
+
     // 中央控件
     QWidget *m_centralWidget;
     QVBoxLayout *m_mainLayout;

@@ -12,45 +12,39 @@ fi
 echo "检查 /dev/uinput 写权限..."
 
 if [ ! -w /dev/uinput ]; then
-    echo "错误: 当前用户没有 /dev/uinput 的写权限"
-    echo ""
-    echo "请执行以下步骤："
-    echo "  1. 将当前用户添加到 input 组: sudo usermod -aG input \$USER"
-    echo "  2. 重新登录系统使权限生效"
-    echo "  3. 重新运行此安装脚本"
-    exit 1
+    echo "注意: 当前用户没有 /dev/uinput 的写权限，将安装 udev uaccess 规则"
+    echo "（安装后需重新插拔/重载规则，活动会话用户即可访问；无需加入 input 组）"
 fi
 
-echo "权限检查通过"
+echo "安装 udev uaccess 规则..."
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-SERVICE_FILE="$PROJECT_DIR/config/numlockd.service"
+# 最小权限原则：uaccess 仅授予当前活动会话用户 /dev/uinput 访问权，
+# 无需 root 运行守护进程，无需将用户加入 input 组。
+echo 'KERNEL=="uinput", MODE="0660", GROUP="input", TAG+="uaccess"' \
+    | sudo tee /etc/udev/rules.d/99-candle.rules > /dev/null || {
+        echo "错误: 写入 udev 规则失败（sudo 失败？）" >&2
+        exit 1
+    }
 
-if [ ! -f "$SERVICE_FILE" ]; then
-    echo "错误: 未找到 numlockd.service 文件"
-    exit 1
+if command -v udevadm &> /dev/null; then
+    sudo udevadm control --reload-rules || { echo "警告: 重载 udev 规则失败" >&2; }
+    sudo udevadm trigger || { echo "警告: 触发 udev 规则失败" >&2; }
 fi
 
-echo "复制 numlockd.service 到 /etc/systemd/system/..."
-sudo cp "$SERVICE_FILE" /etc/systemd/system/
-
-echo "重新加载 systemd 配置..."
-sudo systemctl daemon-reload
-
-echo "启用并启动 numlockd 服务..."
-if sudo systemctl enable --now numlockd.service; then
-    echo ""
-    echo "==================================="
-    echo "安装成功！"
-    echo "==================================="
-    echo ""
-    echo "服务状态:"
-    sudo systemctl status numlockd.service --no-pager
-else
-    echo ""
-    echo "==================================="
-    echo "安装失败！"
-    echo "==================================="
-    exit 1
+# 清理旧版本遗留的 systemd 服务（如曾用 install.sh 安装过）
+if command -v systemctl &> /dev/null; then
+    sudo systemctl disable --now numlockd.service 2>/dev/null || true
 fi
+sudo rm -f /etc/systemd/system/numlockd.service
+
+echo ""
+echo "==================================="
+echo "权限配置完成！"
+echo "==================================="
+echo ""
+echo "说明："
+echo "  - numlockd 不再作为 systemd 服务运行（最小权限原则）"
+echo "  - 守护进程由 candle 面板以当前用户身份拉起，面板退出即终止"
+echo "  - /dev/uinput 仅当前活动会话用户可访问（uaccess）"
+echo ""
+echo "请重新登录（或执行 sudo udevadm trigger）后，运行 candle 面板即可。"

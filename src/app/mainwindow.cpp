@@ -11,8 +11,25 @@
 #include <QLocalSocket>
 #include <QProcess>
 #include <QThread>
+#include <unistd.h>
 
 DWIDGET_USE_NAMESPACE
+
+/**
+ * @brief 计算用户专属 socket 路径（与 numlockd 侧保持一致）
+ *
+ * 优先 $XDG_RUNTIME_DIR（用户专属、权限 0700），未设置时回退
+ * /tmp/numlockd-<uid>.sock。
+ */
+static QString numlockSocketPath()
+{
+    const QByteArray runtime = qgetenv("XDG_RUNTIME_DIR");
+    if (!runtime.isEmpty()) {
+        return QString::fromUtf8(runtime) + QStringLiteral("/numlockd.sock");
+    }
+    return QStringLiteral("/tmp/numlockd-%1.sock")
+        .arg(static_cast<qint64>(getuid()));
+}
 
 /**
  * @brief 构造函数
@@ -21,7 +38,7 @@ MainWindow::MainWindow(QWidget *parent)
     : DMainWindow(parent)
     , m_isServerRunning(false)
     , m_ipcSocket(nullptr)
-    , m_socketPath("numlockd")
+    , m_socketPath(numlockSocketPath())
     , m_daemonProcess(nullptr)
     , m_autoStarted(false)
 {
@@ -73,6 +90,9 @@ MainWindow::MainWindow(QWidget *parent)
  */
 MainWindow::~MainWindow()
 {
+    // GUI 退出时终止本程序自动启动的守护进程（生命周期绑定），
+    // 确保无后台残留进程（最小权限原则：守护进程只在面板运行时存在）
+    stopAutoStartedDaemon();
 }
 
 /**
@@ -329,15 +349,28 @@ void MainWindow::onStopServer()
     // 如果是本程序自动启动的守护进程，则终止它
     if (m_autoStarted && m_daemonProcess) {
         appendLog(tr("正在终止守护进程..."));
-        m_daemonProcess->terminate();
-        if (!m_daemonProcess->waitForFinished(3000)) {
-            m_daemonProcess->kill();
-        }
-        delete m_daemonProcess;
-        m_daemonProcess = nullptr;
-        m_autoStarted = false;
+        stopAutoStartedDaemon();
         appendLog(tr("守护进程已终止"));
     }
+}
+
+/**
+ * @brief 终止本程序自动启动的守护进程
+ */
+void MainWindow::stopAutoStartedDaemon()
+{
+    if (!m_autoStarted || !m_daemonProcess) {
+        return;
+    }
+
+    m_daemonProcess->terminate();
+    if (!m_daemonProcess->waitForFinished(3000)) {
+        m_daemonProcess->kill();
+        m_daemonProcess->waitForFinished(1000);
+    }
+    delete m_daemonProcess;
+    m_daemonProcess = nullptr;
+    m_autoStarted = false;
 }
 
 /**
@@ -361,15 +394,7 @@ void MainWindow::onRestartServer()
     }
 
     // 如果是本程序自动启动的守护进程，则终止它
-    if (m_autoStarted && m_daemonProcess) {
-        m_daemonProcess->terminate();
-        if (!m_daemonProcess->waitForFinished(3000)) {
-            m_daemonProcess->kill();
-        }
-        delete m_daemonProcess;
-        m_daemonProcess = nullptr;
-        m_autoStarted = false;
-    }
+    stopAutoStartedDaemon();
 
     QThread::msleep(500);
 

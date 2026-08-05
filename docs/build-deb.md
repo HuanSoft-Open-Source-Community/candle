@@ -140,9 +140,12 @@ sudo apt-get purge candle
 | `/opt/apps/org.yxzl.candle/bin/candle` | GUI 应用程序 |
 | `/opt/apps/org.yxzl.candle/bin/numlockd` | 守护进程 |
 | `/opt/apps/org.yxzl.candle/share/icons/hicolor/scalable/apps/org.yxzl.candle.svg` | 应用程序图标 |
-| `/lib/systemd/system/numlockd.service` | systemd 服务文件 |
 | `/usr/share/applications/org.yxzl.candle.desktop` | 桌面启动器 |
 | `/usr/share/doc/candle/` | 文档和版权信息 |
+
+> **注意**：包中不再包含 systemd 服务文件（最小权限原则）。
+> numlockd 由 candle 面板以当前用户身份拉起，面板退出即终止；
+> `/dev/uinput` 权限由 postinst 安装的 uaccess udev 规则授予活动会话用户。
 
 ## 包依赖
 

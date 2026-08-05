@@ -13,14 +13,14 @@ A DTK6/Qt6 desktop application for temporarily preventing automatic screen dimmi
 - **🎛️ Service Control**: Start, stop, and restart the numlock daemon service
 - **⚙️ Configuration**: Adjust the numlock simulation interval (in minutes)
 - **📜 Real-time Logging**: View daemon logs in real-time
-- **🔔 System Tray Integration**: Works as a systemd service
+- **🔔 Lifecycle Management**: numlockd runs as the current user, started by the panel and terminated when the panel exits (no systemd service)
 
 ## 📋 Requirements
 
 - Linux operating system
 - Qt6 (>= 6.2)
 - DTK6 (Deepin Toolkit 6)
-- systemd
+- udev uaccess rule (configured by install script, no systemd needed)
 - `/dev/uinput` device access
 
 ## 🚀 Building
@@ -40,11 +40,10 @@ cmake --build .
 
 ### Prerequisites
 
-1. Ensure you have `/dev/uinput` access:
+1. Ensure you have `/dev/uinput` access (least privilege: uaccess rule):
    ```bash
-   # Add your user to the input group
-   sudo usermod -aG input $USER
-   # Log out and log back in for changes to take effect
+   # The install script sets up the uaccess udev rule;
+   # only the active session user gets access, no need to join the input group
    ```
 
 2. Install build dependencies:
@@ -65,7 +64,7 @@ cmake --build .
 sudo cmake --install .
 ```
 
-### Service Installation
+### Permission Setup (udev uaccess)
 
 Run the provided installation script:
 
@@ -74,9 +73,13 @@ sudo ./scripts/install.sh
 ```
 
 This will:
-1. Check `/dev/uinput` permissions
-2. Install the systemd service file
-3. Enable and start the numlockd service
+1. Check that `/dev/uinput` exists
+2. Install the uaccess udev rule (`TAG+="uaccess"`, active session user only)
+3. Clean up any leftover systemd service from older versions
+
+> **Note**: numlockd no longer runs as a systemd service. The daemon is
+> started by the candle panel **as the current user** and is terminated
+> automatically when the panel exits (least-privilege principle, no root process).
 
 ## 📝 Usage
 

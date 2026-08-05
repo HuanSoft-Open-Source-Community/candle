@@ -31,7 +31,7 @@ class IpcServer : public QObject
     Q_OBJECT
 
 public:
-    explicit IpcServer(const QString &socketPath = QStringLiteral("numlockd"),
+    explicit IpcServer(const QString &socketPath = QString(),
                        QObject *parent = nullptr);
     ~IpcServer() override;
 

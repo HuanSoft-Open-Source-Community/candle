@@ -4,11 +4,28 @@
 #include <QLocalSocket>
 #include <QFile>
 #include <QDebug>
+#include <unistd.h>
+
+/**
+ * @brief 计算用户专属 socket 路径
+ *
+ * 最小权限 + 多用户隔离：优先 $XDG_RUNTIME_DIR（用户专属、权限 0700），
+ * 未设置时回退 /tmp/numlockd-<uid>.sock。不再使用全局 /tmp/numlockd，
+ * 避免不同用户/会话之间互相冲突或越权连接。
+ */
+static QString numlockSocketPath()
+{
+    const QByteArray runtime = qgetenv("XDG_RUNTIME_DIR");
+    if (!runtime.isEmpty()) {
+        return QString::fromUtf8(runtime) + QStringLiteral("/numlockd.sock");
+    }
+    return QStringLiteral("/tmp/numlockd-%1.sock").arg(static_cast<qint64>(getuid()));
+}
 
 IpcServer::IpcServer(const QString& socketPath, QObject* parent)
     : QObject(parent)
     , m_server(nullptr)
-    , m_socketPath(socketPath)
+    , m_socketPath(socketPath.isEmpty() ? numlockSocketPath() : socketPath)
 {
 }
 
@@ -24,13 +41,12 @@ bool IpcServer::start()
         return false;
     }
 
-    // 删除旧的 socket 文件（如果存在）- Qt在Unix系统上使用/tmp/目录
-    QString fullSocketPath = QStringLiteral("/tmp/%1").arg(m_socketPath);
-    if (QFile::exists(fullSocketPath)) {
-        if (!QFile::remove(fullSocketPath)) {
-            qWarning() << "Failed to remove old socket file:" << fullSocketPath;
+    // 删除旧的 socket 文件（如果存在）
+    if (QFile::exists(m_socketPath)) {
+        if (!QFile::remove(m_socketPath)) {
+            qWarning() << "Failed to remove old socket file:" << m_socketPath;
         } else {
-            qDebug() << "Removed old socket file:" << fullSocketPath;
+            qDebug() << "Removed old socket file:" << m_socketPath;
         }
     }
 
@@ -68,10 +84,9 @@ void IpcServer::stop()
         qDebug() << "IPC server stopped";
     }
 
-    // 删除 socket 文件 - Qt在Unix系统上使用/tmp/目录
-    QString fullSocketPath = QStringLiteral("/tmp/%1").arg(m_socketPath);
-    if (QFile::exists(fullSocketPath)) {
-        QFile::remove(fullSocketPath);
+    // 删除 socket 文件
+    if (QFile::exists(m_socketPath)) {
+        QFile::remove(m_socketPath);
     }
 }
 
